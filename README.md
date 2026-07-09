@@ -21,8 +21,10 @@ you can search and export.
 
 ## How it works (all client-side)
 - OCR: Tesseract.js (on-device, in the browser).
-- Definitions: the free dictionaryapi.dev — the only piece that needs the
-  network. Offline, words save as "pending" and can be re-looked-up later.
+- Definitions: three free, no-key sources tried in order — a dictionary API
+  (for pronunciations), then Wiktionary (broad vocabulary), then Wikipedia
+  (proper nouns and named concepts). This is the only piece that needs the
+  network; offline, words save as "pending" and can be re-looked-up later.
 - Storage: IndexedDB. Nothing leaves your device except the definition lookup.
 
 ## Files

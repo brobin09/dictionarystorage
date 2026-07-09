@@ -320,28 +320,82 @@
   $('#tab-capture').onclick = ()=>show('capture');
   $('#tab-lexicon').onclick = ()=>show('lexicon');
 
-  /* ---------------- definition lookup ---------------- */
-  async function lookup(word){
-    const url = 'https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word.toLowerCase());
+  /* ---------------- definition lookup ----------------
+     Coverage comes from chaining sources: a clean dictionary first (for
+     pronunciations), then Wiktionary (huge vocabulary incl. archaic/technical/
+     inflected forms), then Wikipedia for proper nouns and named concepts. */
+
+  function stripHTML(s){
+    try{
+      const doc = new DOMParser().parseFromString(String(s||''), 'text/html');
+      return (doc.body.textContent || '').replace(/\s+/g,' ').trim();
+    }catch(e){ return String(s||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim(); }
+  }
+
+  async function tryFreeDict(w){
     let res;
-    try { res = await fetch(url); }
+    try{ res = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(w)); }
     catch(e){ return { status:'offline' }; }
     if(res.status === 404) return { status:'notfound' };
     if(!res.ok) return { status:'error' };
-    let data;
-    try { data = await res.json(); } catch(e){ return { status:'error' }; }
+    let data; try{ data = await res.json(); }catch(e){ return { status:'error' }; }
     const first = Array.isArray(data) ? data[0] : null;
     if(!first) return { status:'notfound' };
     let phon = first.phonetic || '';
-    if(!phon && Array.isArray(first.phonetics)){
-      const p = first.phonetics.find(x => x && x.text);
-      if(p) phon = p.text;
-    }
+    if(!phon && Array.isArray(first.phonetics)){ const p = first.phonetics.find(x => x && x.text); if(p) phon = p.text; }
     const meanings = (first.meanings||[]).slice(0,4).map(m => ({
       pos: m.partOfSpeech || '',
-      defs: (m.definitions||[]).slice(0,3).map(d => ({ def:d.definition||'', ex:d.example||'' }))
+      defs: (m.definitions||[]).slice(0,3).map(d => ({ def:(d.definition||'').trim(), ex:(d.example||'').trim() })).filter(d => d.def)
     })).filter(m => m.defs.length);
-    return { status:'ok', phonetic:phon, meanings };
+    if(!meanings.length) return { status:'notfound' };
+    return { status:'ok', phonetic:phon, meanings, defSource:'Dictionary' };
+  }
+
+  async function tryWiktionary(w){
+    let res;
+    try{ res = await fetch('https://en.wiktionary.org/api/rest_v1/page/definition/' + encodeURIComponent(w)); }
+    catch(e){ return { status:'offline' }; }
+    if(res.status === 404) return { status:'notfound' };
+    if(!res.ok) return { status:'error' };
+    let data; try{ data = await res.json(); }catch(e){ return { status:'error' }; }
+    const en = data && (data.en || data.eng);
+    if(!en || !en.length) return { status:'notfound' };
+    const meanings = en.slice(0,4).map(m => ({
+      pos: (m.partOfSpeech || '').toLowerCase(),
+      defs: (m.definitions||[]).slice(0,3).map(d => ({
+        def: stripHTML(d.definition),
+        ex: (d.examples && d.examples.length) ? stripHTML(d.examples[0]) : ''
+      })).filter(d => d.def)
+    })).filter(m => m.defs.length);
+    if(!meanings.length) return { status:'notfound' };
+    return { status:'ok', phonetic:'', meanings, defSource:'Wiktionary' };
+  }
+
+  async function tryWikipedia(w){
+    let res;
+    try{ res = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(w) + '?redirect=true'); }
+    catch(e){ return { status:'offline' }; }
+    if(!res.ok) return { status:'notfound' };
+    let data; try{ data = await res.json(); }catch(e){ return { status:'notfound' }; }
+    if(data.type && String(data.type).indexOf('disambiguation') !== -1) return { status:'notfound' };
+    const extract = (data.extract || '').trim();
+    if(!extract) return { status:'notfound' };
+    const short = extract.split(/(?<=\.)\s+/).slice(0,2).join(' ');
+    return { status:'ok', phonetic:'', meanings:[{ pos:'', defs:[{ def:short, ex:'' }] }], defSource:'Wikipedia' };
+  }
+
+  async function lookup(word){
+    const w = word.trim().toLowerCase();
+    const a = await tryFreeDict(w);
+    if(a.status === 'ok') return a;
+    const b = await tryWiktionary(w);
+    if(b.status === 'ok') return b;
+    // both hard offline → let the caller mark it pending
+    if(a.status === 'offline' && (b.status === 'offline' || b.status === 'error')) return { status:'offline' };
+    const c = await tryWikipedia(w);
+    if(c.status === 'ok') return c;
+    if(c.status === 'offline' && a.status === 'offline') return { status:'offline' };
+    return { status:'notfound' };
   }
 
   /* ---------------- saving words ---------------- */
@@ -359,6 +413,7 @@
       word: word,
       phonetic: result.phonetic || '',
       meanings: result.meanings || [],
+      defSource: result.defSource || '',
       note: '',
       pending: (result.status === 'offline' || result.status === 'error'),
       notfound: (result.status === 'notfound'),
@@ -544,8 +599,15 @@
     inp.value = '';
     const r = await keepWord(w, { source:'typed' });
     if(r.ok){
-      toast('Kept “'+w+'”.');
-      // reflect on any matching chip
+      const e = r.entry;
+      if(e.meanings && e.meanings.length){
+        const first = e.meanings[0].defs[0].def;
+        toast('“'+e.word+'” — ' + (first.length > 64 ? first.slice(0,64)+'…' : first));
+      } else if(r.status === 'offline'){
+        toast('Kept “'+w+'” — offline, definition pending.');
+      } else {
+        toast('Kept “'+w+'” — no definition found, add your own note.');
+      }
       document.querySelectorAll('#chips .chip').forEach(c => { if(c.textContent===w.toLowerCase()) c.dataset.state='kept'; });
     }
   }
@@ -609,13 +671,17 @@
     const add = document.createElement('span'); add.textContent = 'added '+fmtDate(e.addedAt); meta.appendChild(add);
     const sep=document.createElement('span'); sep.className='sep'; sep.textContent='·'; meta.appendChild(sep);
     const src=document.createElement('span'); src.textContent = 'from '+(e.source||'screenshot'); meta.appendChild(src);
+    if(e.defSource){
+      const s2=document.createElement('span'); s2.className='sep'; s2.textContent='·'; meta.appendChild(s2);
+      const ds=document.createElement('span'); ds.textContent='via '+e.defSource; meta.appendChild(ds);
+    }
 
-    if(e.pending){
-      const rl=document.createElement('button'); rl.textContent='Re-look up';
+    if(e.pending || e.notfound){
+      const rl=document.createElement('button'); rl.textContent = e.pending ? 'Re-look up' : 'Look up again';
       rl.onclick = async ()=>{ rl.textContent='…'; const r=await lookup(e.word);
-        if(r.status==='ok'){ e.phonetic=r.phonetic; e.meanings=r.meanings; e.pending=false; e.notfound=false; await idbPut(e); renderLexicon(); toast('Definition added.'); }
-        else if(r.status==='notfound'){ e.pending=false; e.notfound=true; await idbPut(e); renderLexicon(); }
-        else { toast('Still offline — try again later.'); rl.textContent='Re-look up'; }
+        if(r.status==='ok'){ e.phonetic=r.phonetic; e.meanings=r.meanings; e.defSource=r.defSource||''; e.pending=false; e.notfound=false; await idbPut(e); renderLexicon(); toast('Definition added — via '+(r.defSource||'source')+'.'); }
+        else if(r.status==='notfound'){ e.pending=false; e.notfound=true; await idbPut(e); renderLexicon(); toast('No definition found for “'+e.word+'”.'); }
+        else { toast('Still offline — try again later.'); rl.textContent = e.pending ? 'Re-look up' : 'Look up again'; }
       };
       meta.appendChild(rl);
     }
