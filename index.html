@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Lexicon — Personal Dictionary</title>
+<meta name="description" content="Capture words from screenshots and build a dictionary you write yourself." />
+<meta name="theme-color" content="#7C2A33" />
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --paper:#FAF9F6; --ink:#1B1B1F; --oxblood:#7C2A33; --oxblood-bright:#9B3340;
+    --slate:#4A5568; --slate-soft:#727C8C; --wash:#EFEDE6; --line:#E3DFD5;
+    --gild:#C99A2E; --gild-wash:#F3E9CE;
+    --display:'Fraunces',Georgia,serif;
+    --read:'Newsreader',Georgia,serif;
+    --ui:'IBM Plex Sans',system-ui,sans-serif;
+    --maxw:640px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--paper); color:var(--ink); font-family:var(--ui);
+    font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased;
+    padding:0 max(16px, env(safe-area-inset-left)) calc(40px + env(safe-area-inset-bottom));
+  }
+  .wrap{max-width:var(--maxw); margin:0 auto}
+
+  /* ---- masthead ---- */
+  .masthead{padding:26px 2px 14px}
+  .runhead{
+    display:flex; justify-content:space-between; align-items:baseline;
+    border-bottom:1.5px solid var(--ink); padding-bottom:7px; letter-spacing:.02em;
+  }
+  .runhead .mark{font-family:var(--ui); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.18em; color:var(--slate)}
+  .runhead .ed{font-family:var(--read); font-style:italic; font-size:.82rem; color:var(--slate-soft)}
+  h1.title{
+    font-family:var(--display); font-weight:600; font-size:clamp(2.6rem,11vw,3.6rem);
+    line-height:.98; margin:.34em 0 .12em; letter-spacing:-.015em;
+    font-optical-sizing:auto; animation:rise .6s cubic-bezier(.2,.7,.2,1) both;
+  }
+  .subtitle{font-family:var(--read); font-style:italic; font-size:1.08rem; color:var(--slate); margin:0}
+  @keyframes rise{from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none}}
+
+  /* ---- tabs ---- */
+  .tabs{
+    position:sticky; top:0; z-index:20; background:var(--paper);
+    display:flex; gap:0; margin:18px 0 22px; padding-top:6px;
+    border-bottom:1px solid var(--line);
+  }
+  .tab{
+    appearance:none; background:none; border:none; cursor:pointer;
+    font-family:var(--ui); font-weight:600; font-size:.82rem; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--slate-soft); padding:10px 2px 12px; margin-right:26px;
+    border-bottom:2px solid transparent; margin-bottom:-1px;
+  }
+  .tab[aria-selected="true"]{color:var(--oxblood); border-bottom-color:var(--oxblood)}
+  .tab .n{font-family:var(--read); font-style:italic; font-weight:500; text-transform:none; letter-spacing:0; color:var(--slate-soft); margin-left:.4em}
+
+  .view{display:none}
+  .view.active{display:block; animation:fade .25s ease both}
+  @keyframes fade{from{opacity:0} to{opacity:1}}
+
+  /* ---- dropzone ---- */
+  .drop{
+    display:flex; flex-direction:column; align-items:center; text-align:center; gap:14px;
+    border:1.5px solid var(--line); border-radius:14px; background:#fff;
+    padding:34px 22px; transition:border-color .18s, background .18s;
+  }
+  .drop.drag{border-color:var(--oxblood); background:var(--gild-wash)}
+  .drop .kbd{font-family:var(--read); font-style:italic; color:var(--slate); font-size:1.05rem; max-width:24ch}
+  .btn{
+    appearance:none; cursor:pointer; font-family:var(--ui); font-weight:600; font-size:.95rem;
+    color:#fff; background:var(--oxblood); border:none; border-radius:9px; padding:12px 22px;
+    letter-spacing:.01em; transition:background .16s, transform .06s;
+  }
+  .btn:hover{background:var(--oxblood-bright)}
+  .btn:active{transform:translateY(1px)}
+  .btn.ghost{background:none; color:var(--oxblood); border:1.5px solid var(--line); padding:9px 16px}
+  .btn.ghost:hover{border-color:var(--oxblood); background:var(--paper)}
+  .btn.mini{font-size:.78rem; padding:5px 11px; border-radius:7px}
+  .hint{font-size:.82rem; color:var(--slate-soft); max-width:40ch; line-height:1.45}
+  input[type=file]{position:absolute; width:1px; height:1px; opacity:0; overflow:hidden}
+
+  /* ---- capture result ---- */
+  .stage{margin-top:20px}
+  .preview{
+    display:flex; gap:14px; align-items:flex-start; padding:12px;
+    background:#fff; border:1px solid var(--line); border-radius:12px; margin-bottom:18px;
+  }
+  .preview img{width:76px; height:76px; object-fit:cover; border-radius:8px; background:var(--wash); flex:none}
+  .preview .st{flex:1; min-width:0}
+  .preview .st .lead{font-family:var(--read); font-size:1.02rem; color:var(--ink)}
+  .bar{height:5px; background:var(--wash); border-radius:3px; overflow:hidden; margin-top:9px}
+  .bar > i{display:block; height:100%; width:0; background:var(--oxblood); transition:width .2s}
+
+  .sect-label{
+    font-family:var(--ui); font-weight:600; font-size:.72rem; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--slate); margin:0 0 12px;
+  }
+  .chips{display:flex; flex-wrap:wrap; gap:9px}
+  .chip{
+    appearance:none; cursor:pointer; font-family:var(--read); font-size:1.02rem;
+    background:#fff; color:var(--ink); border:1.5px solid var(--line); border-radius:999px;
+    padding:7px 15px; transition:border-color .15s, background .15s, color .15s;
+  }
+  .chip:hover{border-color:var(--oxblood)}
+  .chip[data-state="saving"]{color:var(--slate-soft); border-color:var(--line)}
+  .chip[data-state="kept"]{background:var(--gild-wash); border-color:var(--gild); color:var(--oxblood); cursor:default}
+  .chip[data-state="kept"]::after{content:" ✓"; color:var(--gild); font-family:var(--ui)}
+  .chip.flash{animation:gild .7s ease}
+  @keyframes gild{0%{box-shadow:0 0 0 0 var(--gild)} 40%{box-shadow:0 0 0 4px var(--gild-wash)} 100%{box-shadow:0 0 0 0 transparent}}
+
+  .manual{display:flex; gap:9px; margin-top:20px}
+  .manual input{
+    flex:1; font-family:var(--read); font-size:1.02rem; color:var(--ink);
+    background:#fff; border:1.5px solid var(--line); border-radius:9px; padding:10px 14px;
+  }
+  .manual input:focus{outline:none; border-color:var(--oxblood)}
+  details.full{margin-top:22px}
+  details.full summary{cursor:pointer; font-family:var(--ui); font-weight:600; font-size:.8rem; color:var(--slate); letter-spacing:.04em}
+  details.full .txt{font-family:var(--read); font-size:.98rem; color:var(--slate); white-space:pre-wrap; margin-top:10px; background:var(--wash); border-radius:10px; padding:14px; max-height:240px; overflow:auto}
+
+  /* ---- lexicon toolbar ---- */
+  .toolbar{display:flex; gap:10px; align-items:center; margin-bottom:20px}
+  .search{
+    flex:1; position:relative;
+  }
+  .search input{
+    width:100%; font-family:var(--read); font-size:1.02rem; color:var(--ink);
+    background:#fff; border:1.5px solid var(--line); border-radius:9px; padding:11px 14px 11px 36px;
+  }
+  .search input:focus{outline:none; border-color:var(--oxblood)}
+  .search svg{position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--slate-soft)}
+  .exp{position:relative}
+  .exp-menu{
+    position:absolute; right:0; top:calc(100% + 6px); z-index:30; background:#fff;
+    border:1px solid var(--line); border-radius:10px; padding:6px; min-width:150px;
+    box-shadow:0 8px 26px rgba(27,27,31,.1); display:none;
+  }
+  .exp-menu.open{display:block}
+  .exp-menu button{
+    display:block; width:100%; text-align:left; background:none; border:none; cursor:pointer;
+    font-family:var(--ui); font-size:.88rem; color:var(--ink); padding:8px 10px; border-radius:6px;
+  }
+  .exp-menu button:hover{background:var(--wash)}
+
+  /* ---- the signature: dictionary entries ---- */
+  #entries{display:flex; flex-direction:column}
+  .entry{padding:20px 0; border-bottom:1px solid var(--line)}
+  .entry:first-child{padding-top:2px}
+  .entry-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+  .headword{
+    font-family:var(--display); font-weight:600; font-size:1.9rem; line-height:1;
+    color:var(--oxblood); margin:0; letter-spacing:-.01em; font-optical-sizing:auto;
+  }
+  .phon{font-family:var(--read); font-size:1rem; color:var(--slate-soft); letter-spacing:.01em}
+  .senses{margin-top:10px}
+  .pos-group{margin-top:8px}
+  .pos{font-family:var(--read); font-style:italic; font-size:1.02rem; color:var(--slate); margin-right:.2em}
+  .pos-group ol{margin:4px 0 0; padding-left:1.35em}
+  .pos-group li{font-family:var(--read); font-size:1.06rem; line-height:1.5; color:var(--ink); margin:3px 0; padding-left:.15em}
+  .pos-group li .ex{display:block; font-style:italic; color:var(--slate-soft); font-size:.98rem; margin-top:1px}
+  .note{font-family:var(--read); font-size:1.05rem; color:var(--ink); margin-top:8px}
+  .note.empty{color:var(--slate-soft); font-style:italic}
+  .pending{font-family:var(--read); font-style:italic; color:var(--slate-soft); margin-top:8px; font-size:1rem}
+  .entry-meta{
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px;
+    font-family:var(--ui); font-size:.76rem; color:var(--slate-soft);
+  }
+  .entry-meta .sep{opacity:.5}
+  .entry-meta button{
+    appearance:none; background:none; border:none; cursor:pointer; font-family:var(--ui);
+    font-size:.76rem; color:var(--slate); padding:3px 6px; border-radius:6px; letter-spacing:.02em;
+  }
+  .entry-meta button:hover{background:var(--wash); color:var(--oxblood)}
+  .noteedit{display:flex; gap:8px; margin-top:10px}
+  .noteedit input{flex:1; font-family:var(--read); font-size:1rem; border:1.5px solid var(--line); border-radius:8px; padding:8px 12px; background:#fff}
+  .noteedit input:focus{outline:none; border-color:var(--oxblood)}
+
+  /* ---- empty states ---- */
+  .empty{text-align:center; padding:48px 20px; color:var(--slate-soft)}
+  .empty .big{font-family:var(--display); font-weight:500; font-size:1.5rem; color:var(--slate); margin-bottom:8px}
+  .empty p{font-family:var(--read); font-style:italic; margin:0; font-size:1.05rem}
+
+  /* ---- toast ---- */
+  #toast{
+    position:fixed; left:50%; bottom:calc(24px + env(safe-area-inset-bottom)); transform:translateX(-50%) translateY(20px);
+    background:var(--ink); color:var(--paper); font-family:var(--ui); font-size:.9rem;
+    padding:11px 18px; border-radius:10px; opacity:0; pointer-events:none; transition:opacity .22s, transform .22s; z-index:60; max-width:90vw;
+  }
+  #toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+
+  :focus-visible{outline:2px solid var(--oxblood); outline-offset:2px; border-radius:4px}
+  @media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <div class="runhead">
+      <span class="mark">Lexicon</span>
+      <span class="ed">a dictionary you write yourself</span>
+    </div>
+    <h1 class="title">Lexicon</h1>
+    <p class="subtitle">Keep the words worth keeping.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button class="tab" id="tab-capture" role="tab" aria-selected="true" aria-controls="capture">Capture</button>
+    <button class="tab" id="tab-lexicon" role="tab" aria-selected="false" aria-controls="lexicon">Lexicon<span class="n" id="count">0</span></button>
+  </nav>
+
+  <!-- CAPTURE -->
+  <section class="view active" id="capture" role="tabpanel" aria-labelledby="tab-capture">
+    <label class="drop" id="drop" for="file">
+      <span class="kbd">Drop a screenshot, paste it, or choose a file.</span>
+      <span class="btn" role="button" tabindex="0" id="choose">Choose image</span>
+      <span class="hint">Installed on Android? Share any screenshot straight to Lexicon from the share sheet.</span>
+    </label>
+    <input type="file" id="file" accept="image/*" />
+
+    <div class="stage" id="stage" hidden>
+      <div class="preview">
+        <img id="thumb" alt="Selected screenshot" />
+        <div class="st">
+          <div class="lead" id="ocr-lead">Reading the image…</div>
+          <div class="bar"><i id="ocr-bar"></i></div>
+        </div>
+      </div>
+
+      <div id="words-block" hidden>
+        <p class="sect-label">Tap a word to keep it</p>
+        <div class="chips" id="chips"></div>
+      </div>
+
+      <details class="full" id="fulltext-wrap" hidden>
+        <summary>Show the full recognized text</summary>
+        <div class="txt" id="fulltext"></div>
+      </details>
+    </div>
+
+    <div class="manual">
+      <input type="text" id="manual-input" placeholder="Add a word by hand" autocomplete="off" autocapitalize="none" spellcheck="false" />
+      <button class="btn ghost" id="manual-add">Add</button>
+    </div>
+  </section>
+
+  <!-- LEXICON -->
+  <section class="view" id="lexicon" role="tabpanel" aria-labelledby="tab-lexicon" hidden>
+    <div class="toolbar">
+      <div class="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="search" id="search" placeholder="Search your words" autocomplete="off" />
+      </div>
+      <div class="exp">
+        <button class="btn ghost" id="export-btn">Export</button>
+        <div class="exp-menu" id="export-menu">
+          <button data-fmt="json">Data file (JSON)</button>
+          <button data-fmt="csv">Spreadsheet (CSV)</button>
+          <button data-fmt="md">Markdown list</button>
+        </div>
+      </div>
+    </div>
+    <div id="entries"></div>
+    <div class="empty" id="lex-empty">
+      <div class="big">Nothing kept yet</div>
+      <p>Capture a screenshot to write your first entry.</p>
+    </div>
+  </section>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+(function(){
+  'use strict';
+  const $ = (s, r=document) => r.querySelector(s);
+
+  /* ---------------- IndexedDB ---------------- */
+  const DB_NAME='lexicon', STORE='entries';
+  let dbp = new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore(STORE, { keyPath:'id' }); };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  function tx(mode){ return dbp.then(db => db.transaction(STORE, mode).objectStore(STORE)); }
+  function idbAll(){ return tx('readonly').then(s => new Promise((res,rej)=>{ const rq=s.getAll(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>rej(rq.error); })); }
+  function idbPut(v){ return tx('readwrite').then(s => new Promise((res,rej)=>{ const rq=s.put(v); rq.onsuccess=()=>res(v); rq.onerror=()=>rej(rq.error); })); }
+  function idbDel(id){ return tx('readwrite').then(s => new Promise((res,rej)=>{ const rq=s.delete(id); rq.onsuccess=()=>res(); rq.onerror=()=>rej(rq.error); })); }
+
+  /* ---------------- state ---------------- */
+  let entries = [];       // in-memory cache
+  const wordKey = w => w.trim().toLowerCase();
+
+  /* ---------------- toast ---------------- */
+  let toastT;
+  function toast(msg){
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 2600);
+  }
+
+  /* ---------------- tabs ---------------- */
+  function show(view){
+    const cap = view==='capture';
+    $('#tab-capture').setAttribute('aria-selected', cap);
+    $('#tab-lexicon').setAttribute('aria-selected', !cap);
+    $('#capture').classList.toggle('active', cap);
+    $('#capture').hidden = !cap;
+    $('#lexicon').classList.toggle('active', !cap);
+    $('#lexicon').hidden = cap;
+    if(!cap) renderLexicon();
+  }
+  $('#tab-capture').onclick = ()=>show('capture');
+  $('#tab-lexicon').onclick = ()=>show('lexicon');
+
+  /* ---------------- definition lookup ---------------- */
+  async function lookup(word){
+    const url = 'https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word.toLowerCase());
+    let res;
+    try { res = await fetch(url); }
+    catch(e){ return { status:'offline' }; }
+    if(res.status === 404) return { status:'notfound' };
+    if(!res.ok) return { status:'error' };
+    let data;
+    try { data = await res.json(); } catch(e){ return { status:'error' }; }
+    const first = Array.isArray(data) ? data[0] : null;
+    if(!first) return { status:'notfound' };
+    let phon = first.phonetic || '';
+    if(!phon && Array.isArray(first.phonetics)){
+      const p = first.phonetics.find(x => x && x.text);
+      if(p) phon = p.text;
+    }
+    const meanings = (first.meanings||[]).slice(0,4).map(m => ({
+      pos: m.partOfSpeech || '',
+      defs: (m.definitions||[]).slice(0,3).map(d => ({ def:d.definition||'', ex:d.example||'' }))
+    })).filter(m => m.defs.length);
+    return { status:'ok', phonetic:phon, meanings };
+  }
+
+  /* ---------------- saving words ---------------- */
+  function exists(word){ return entries.some(e => e.id === wordKey(word)); }
+
+  async function keepWord(rawWord, opts={}){
+    const word = rawWord.trim();
+    if(!word) return { ok:false };
+    const id = wordKey(word);
+    if(exists(word)){ toast('“'+word+'” is already in your lexicon.'); return { ok:false, dup:true }; }
+
+    const result = await lookup(word);
+    const entry = {
+      id,
+      word: word,
+      phonetic: result.phonetic || '',
+      meanings: result.meanings || [],
+      note: '',
+      pending: (result.status === 'offline' || result.status === 'error'),
+      notfound: (result.status === 'notfound'),
+      source: opts.source || 'screenshot',
+      addedAt: Date.now()
+    };
+    await idbPut(entry);
+    entries.push(entry);
+    updateCount();
+    return { ok:true, entry, status:result.status };
+  }
+
+  function updateCount(){ $('#count').textContent = entries.length; }
+
+  /* ---------------- OCR ---------------- */
+  const STOP = new Set(('the a an and or but of to in on at for with from by as is are was were be been being this that these those it its it\'s he she they we you i me my your our their them his her not no yes if then than so too very can will just').split(' '));
+
+  function tokenize(text){
+    const raw = (text||'').toLowerCase().match(/[a-z][a-z''\-]{1,}[a-z]|[a-z]{2,}/g) || [];
+    const seen = new Set(); const out = [];
+    for(const w0 of raw){
+      const w = w0.replace(/^['\-]+|['\-]+$/g,'');
+      if(w.length < 3) continue;
+      if(STOP.has(w)) continue;
+      if(seen.has(w)) continue;
+      seen.add(w); out.push(w);
+    }
+    return out.sort((a,b)=>a.localeCompare(b));
+  }
+
+  let tess = null;
+  async function runOCR(blob){
+    const stage = $('#stage'); stage.hidden = false;
+    $('#thumb').src = URL.createObjectURL(blob);
+    $('#ocr-lead').textContent = 'Reading the image…';
+    $('#ocr-bar').style.width = '4%';
+    $('#words-block').hidden = true;
+    $('#fulltext-wrap').hidden = true;
+
+    try{
+      const { data } = await Tesseract.recognize(blob, 'eng', {
+        logger: m => {
+          if(m.status === 'recognizing text'){ $('#ocr-bar').style.width = Math.max(4, Math.round(m.progress*100)) + '%'; }
+          else if(m.status){ $('#ocr-lead').textContent = m.status.charAt(0).toUpperCase()+m.status.slice(1)+'…'; }
+        }
+      });
+      $('#ocr-bar').style.width = '100%';
+      const text = (data.text||'').trim();
+      const words = tokenize(text);
+
+      $('#fulltext').textContent = text || '(no text detected)';
+      $('#fulltext-wrap').hidden = false;
+
+      if(!words.length){
+        $('#ocr-lead').textContent = 'No words found in that image. Try a sharper screenshot.';
+        return;
+      }
+      $('#ocr-lead').textContent = 'Found ' + words.length + (words.length===1?' word.':' words.');
+      renderChips(words);
+      $('#words-block').hidden = false;
+    }catch(err){
+      $('#ocr-lead').textContent = 'Could not read that image. Try a different screenshot.';
+      console.error(err);
+    }
+  }
+
+  function renderChips(words){
+    const box = $('#chips'); box.innerHTML = '';
+    for(const w of words){
+      const c = document.createElement('button');
+      c.className = 'chip'; c.type = 'button'; c.textContent = w;
+      if(exists(w)) c.dataset.state = 'kept';
+      c.onclick = () => onChip(c, w);
+      box.appendChild(c);
+    }
+  }
+
+  async function onChip(el, word){
+    if(el.dataset.state === 'kept' || el.dataset.state === 'saving') return;
+    el.dataset.state = 'saving';
+    const r = await keepWord(word, { source:'screenshot' });
+    if(r.ok){
+      el.dataset.state = 'kept'; el.classList.add('flash');
+      if(r.status === 'notfound') toast('Kept “'+word+'” — no dictionary entry, add your own note.');
+      else if(r.status !== 'ok') toast('Kept “'+word+'” — definition pending, re-look up when online.');
+    } else {
+      el.dataset.state = r.dup ? 'kept' : '';
+    }
+  }
+
+  /* ---------------- image intake ---------------- */
+  function handleFile(file){
+    if(!file || !file.type.startsWith('image/')){ toast('That is not an image file.'); return; }
+    show('capture'); runOCR(file);
+  }
+  $('#file').addEventListener('change', e => { if(e.target.files[0]) handleFile(e.target.files[0]); e.target.value=''; });
+  $('#choose').addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' '){ e.preventDefault(); $('#file').click(); }});
+
+  const drop = $('#drop');
+  ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); }));
+  drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if(f) handleFile(f); });
+
+  window.addEventListener('paste', e => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if(!items) return;
+    for(const it of items){ if(it.type.startsWith('image/')){ handleFile(it.getAsFile()); break; } }
+  });
+
+  /* manual add */
+  async function manualAdd(){
+    const inp = $('#manual-input'); const w = inp.value.trim();
+    if(!w) return;
+    inp.value = '';
+    const r = await keepWord(w, { source:'typed' });
+    if(r.ok){
+      toast('Kept “'+w+'”.');
+      // reflect on any matching chip
+      document.querySelectorAll('#chips .chip').forEach(c => { if(c.textContent===w.toLowerCase()) c.dataset.state='kept'; });
+    }
+  }
+  $('#manual-add').onclick = manualAdd;
+  $('#manual-input').addEventListener('keydown', e => { if(e.key==='Enter') manualAdd(); });
+
+  /* ---------------- lexicon rendering ---------------- */
+  function fmtDate(ts){
+    try{ return new Date(ts).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}); }
+    catch(e){ return ''; }
+  }
+
+  function renderLexicon(){
+    const q = ($('#search').value||'').trim().toLowerCase();
+    const list = entries
+      .filter(e => !q || e.word.toLowerCase().includes(q))
+      .sort((a,b)=> a.word.localeCompare(b.word));
+
+    const box = $('#entries'); box.innerHTML = '';
+    $('#lex-empty').hidden = entries.length > 0;
+
+    if(entries.length && !list.length){
+      box.innerHTML = '<div class="empty"><div class="big">No match</div><p>No kept word contains “'+q.replace(/</g,'&lt;')+'”.</p></div>';
+      return;
+    }
+
+    for(const e of list) box.appendChild(entryEl(e));
+  }
+
+  function entryEl(e){
+    const art = document.createElement('article'); art.className='entry';
+
+    const head = document.createElement('div'); head.className='entry-head';
+    const h = document.createElement('h3'); h.className='headword'; h.textContent = e.word; head.appendChild(h);
+    if(e.phonetic){ const p=document.createElement('span'); p.className='phon'; p.textContent=e.phonetic; head.appendChild(p); }
+    art.appendChild(head);
+
+    if(e.meanings && e.meanings.length){
+      const senses = document.createElement('div'); senses.className='senses';
+      for(const m of e.meanings){
+        const g = document.createElement('div'); g.className='pos-group';
+        if(m.pos){ const pos=document.createElement('span'); pos.className='pos'; pos.textContent=m.pos; g.appendChild(pos); }
+        const ol = document.createElement('ol');
+        for(const d of m.defs){
+          const li = document.createElement('li'); li.textContent = d.def;
+          if(d.ex){ const ex=document.createElement('span'); ex.className='ex'; ex.textContent='“'+d.ex+'”'; li.appendChild(ex); }
+          ol.appendChild(li);
+        }
+        g.appendChild(ol); senses.appendChild(g);
+      }
+      art.appendChild(senses);
+    } else if(e.pending){
+      const p=document.createElement('div'); p.className='pending'; p.textContent='Definition pending — re-look up when you are back online.'; art.appendChild(p);
+    } else if(e.notfound && !e.note){
+      const p=document.createElement('div'); p.className='pending'; p.textContent='No standard dictionary entry. Add your own note below.'; art.appendChild(p);
+    }
+
+    if(e.note){ const n=document.createElement('div'); n.className='note'; n.textContent = e.note; art.appendChild(n); }
+
+    const meta = document.createElement('div'); meta.className='entry-meta';
+    const add = document.createElement('span'); add.textContent = 'added '+fmtDate(e.addedAt); meta.appendChild(add);
+    const sep=document.createElement('span'); sep.className='sep'; sep.textContent='·'; meta.appendChild(sep);
+    const src=document.createElement('span'); src.textContent = 'from '+(e.source||'screenshot'); meta.appendChild(src);
+
+    if(e.pending){
+      const rl=document.createElement('button'); rl.textContent='Re-look up';
+      rl.onclick = async ()=>{ rl.textContent='…'; const r=await lookup(e.word);
+        if(r.status==='ok'){ e.phonetic=r.phonetic; e.meanings=r.meanings; e.pending=false; e.notfound=false; await idbPut(e); renderLexicon(); toast('Definition added.'); }
+        else if(r.status==='notfound'){ e.pending=false; e.notfound=true; await idbPut(e); renderLexicon(); }
+        else { toast('Still offline — try again later.'); rl.textContent='Re-look up'; }
+      };
+      meta.appendChild(rl);
+    }
+
+    const noteBtn=document.createElement('button'); noteBtn.textContent = e.note?'Edit note':'Add note';
+    noteBtn.onclick = ()=>openNote(art, e); meta.appendChild(noteBtn);
+
+    const del=document.createElement('button'); del.textContent='Delete';
+    del.onclick = async ()=>{ await idbDel(e.id); entries = entries.filter(x=>x.id!==e.id); updateCount(); renderLexicon(); toast('Removed “'+e.word+'”.'); };
+    meta.appendChild(del);
+
+    art.appendChild(meta);
+    return art;
+  }
+
+  function openNote(art, e){
+    if(art.querySelector('.noteedit')) return;
+    const wrap=document.createElement('div'); wrap.className='noteedit';
+    const inp=document.createElement('input'); inp.type='text'; inp.value=e.note||''; inp.placeholder='Your note or definition';
+    const save=document.createElement('button'); save.className='btn mini'; save.textContent='Save';
+    save.onclick = async ()=>{ e.note = inp.value.trim(); await idbPut(e); renderLexicon(); };
+    wrap.appendChild(inp); wrap.appendChild(save);
+    art.appendChild(wrap); inp.focus();
+    inp.addEventListener('keydown', ev=>{ if(ev.key==='Enter') save.onclick(); });
+  }
+
+  $('#search').addEventListener('input', renderLexicon);
+
+  /* ---------------- export ---------------- */
+  const exportMenu = $('#export-menu');
+  $('#export-btn').onclick = (e)=>{ e.stopPropagation(); exportMenu.classList.toggle('open'); };
+  document.addEventListener('click', ()=> exportMenu.classList.remove('open'));
+  exportMenu.addEventListener('click', e => {
+    const fmt = e.target.dataset && e.target.dataset.fmt; if(!fmt) return;
+    doExport(fmt);
+  });
+
+  function download(name, text, type){
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 500);
+  }
+  function csvCell(s){ s = (s==null?'':String(s)); return '"'+s.replace(/"/g,'""')+'"'; }
+
+  function doExport(fmt){
+    if(!entries.length){ toast('Nothing to export yet.'); return; }
+    const sorted = [...entries].sort((a,b)=>a.word.localeCompare(b.word));
+    const stamp = new Date().toISOString().slice(0,10);
+    if(fmt==='json'){
+      download('lexicon-'+stamp+'.json', JSON.stringify(sorted, null, 2), 'application/json');
+    } else if(fmt==='csv'){
+      const rows = [['word','phonetic','part_of_speech','definition','note','source','added'].map(csvCell).join(',')];
+      for(const e of sorted){
+        const first = (e.meanings&&e.meanings[0]) || null;
+        const pos = first ? first.pos : '';
+        const def = first && first.defs[0] ? first.defs[0].def : (e.note||'');
+        rows.push([e.word, e.phonetic, pos, def, e.note, e.source, fmtDate(e.addedAt)].map(csvCell).join(','));
+      }
+      download('lexicon-'+stamp+'.csv', rows.join('\n'), 'text/csv');
+    } else if(fmt==='md'){
+      let md = '# Lexicon\n\n';
+      for(const e of sorted){
+        md += '### '+e.word+(e.phonetic?'  '+e.phonetic:'')+'\n';
+        if(e.meanings && e.meanings.length){
+          for(const m of e.meanings){ md += '- *'+m.pos+'* — '+m.defs.map(d=>d.def).join('; ')+'\n'; }
+        }
+        if(e.note) md += '- note: '+e.note+'\n';
+        md += '\n';
+      }
+      download('lexicon-'+stamp+'.md', md, 'text/markdown');
+    }
+    exportMenu.classList.remove('open');
+    toast('Exported '+entries.length+' words.');
+  }
+
+  /* ---------------- shared image from Android ---------------- */
+  async function checkShared(){
+    const params = new URLSearchParams(location.search);
+    if(!params.get('shared')) return;
+    try{
+      const cache = await caches.open('shared-media');
+      const resp = await cache.match('shared-image');
+      if(resp){ const blob = await resp.blob(); await cache.delete('shared-image'); handleFile(blob); }
+    }catch(e){ /* ignore */ }
+    history.replaceState(null,'', location.pathname);
+  }
+
+  /* ---------------- boot ---------------- */
+  (async function init(){
+    try{ entries = await idbAll(); }catch(e){ entries = []; }
+    updateCount();
+    await checkShared();
+    if('serviceWorker' in navigator){
+      window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+    }
+  })();
+})();
+</script>
+</body>
+</html>
