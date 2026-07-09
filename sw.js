@@ -1,5 +1,5 @@
 /* Lexicon service worker — offline shell + Android share target */
-const VERSION = 'lexicon-v1';
+const VERSION = 'lexicon-v2';
 const SHELL   = 'shell-' + VERSION;
 const RUNTIME = 'runtime-' + VERSION;
 const SHARED  = 'shared-media';
@@ -37,7 +37,8 @@ function runtimeCacheable(url) {
     url.hostname === 'fonts.googleapis.com' ||
     url.hostname === 'fonts.gstatic.com'   ||
     url.hostname === 'cdn.jsdelivr.net'    ||
-    url.hostname === 'unpkg.com'
+    url.hostname === 'unpkg.com' ||
+    url.hostname === 'tessdata.projectnaptha.com'
   );
 }
 

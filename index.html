@@ -389,22 +389,91 @@
     return out.sort((a,b)=>a.localeCompare(b));
   }
 
-  let tess = null;
+  // Prepare an image for OCR: upscale, greyscale, auto-threshold to clean
+  // black-on-white, and invert dark-mode screenshots. This is where most of
+  // the accuracy comes from — Tesseract struggles with raw, small, or
+  // light-on-dark screenshots.
+  function preprocess(blob){
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const minSide = Math.min(img.width, img.height) || 1;
+        let scale = minSide < 1000 ? Math.min(3, 1600 / minSide) : 1;
+        let w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        const MAX = 3200;
+        if(Math.max(w,h) > MAX){ const k = MAX/Math.max(w,h); w=Math.round(w*k); h=Math.round(h*k); }
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        const ctx = c.getContext('2d', { willReadFrequently:true });
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(img.src);
+        const total = w*h, id = ctx.getImageData(0,0,w,h), d = id.data;
+        const gray = new Uint8ClampedArray(total), hist = new Array(256).fill(0);
+        let sum = 0;
+        for(let i=0,p=0;i<d.length;i+=4,p++){
+          const g = (d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114)|0;
+          gray[p]=g; hist[g]++; sum+=g;
+        }
+        const mean = sum/total;
+        // Otsu threshold
+        let sumAll=0; for(let t=0;t<256;t++) sumAll += t*hist[t];
+        let wB=0, sumB=0, maxVar=0, thr=127;
+        for(let t=0;t<256;t++){
+          wB += hist[t]; if(!wB) continue;
+          const wF = total - wB; if(!wF) break;
+          sumB += t*hist[t];
+          const mB = sumB/wB, mF = (sumAll - sumB)/wF;
+          const between = wB*wF*(mB-mF)*(mB-mF);
+          if(between > maxVar){ maxVar=between; thr=t; }
+        }
+        const darkBg = mean < 110;   // light text on dark background → invert
+        for(let i=0,p=0;i<d.length;i+=4,p++){
+          let v = gray[p] > thr ? 255 : 0;
+          if(darkBg) v = 255 - v;
+          d[i]=d[i+1]=d[i+2]=v; d[i+3]=255;
+        }
+        ctx.putImageData(id, 0, 0);
+        resolve(c);
+      };
+      img.onerror = () => reject(new Error('image decode failed'));
+      img.src = URL.createObjectURL(blob);
+    });
+  }
+
+  let ocrWorker = null;
+  async function getWorker(){
+    if(ocrWorker) return ocrWorker;
+    $('#ocr-lead').textContent = 'Loading the reader…';
+    ocrWorker = await Tesseract.createWorker('eng', 1, {
+      // the higher-accuracy ("best") model rather than the default fast one
+      langPath: 'https://tessdata.projectnaptha.com/4.0.0_best',
+      logger: m => {
+        if(m.status === 'recognizing text'){
+          $('#ocr-bar').style.width = Math.max(8, Math.round(m.progress*100)) + '%';
+        }
+      }
+    });
+    await ocrWorker.setParameters({
+      user_defined_dpi: '300',
+      preserve_interword_spaces: '1',
+      tessedit_pageseg_mode: '3'   // automatic page segmentation
+    });
+    return ocrWorker;
+  }
+
   async function runOCR(blob){
     const stage = $('#stage'); stage.hidden = false;
     $('#thumb').src = URL.createObjectURL(blob);
-    $('#ocr-lead').textContent = 'Reading the image…';
+    $('#ocr-lead').textContent = 'Sharpening the image…';
     $('#ocr-bar').style.width = '4%';
     $('#words-block').hidden = true;
     $('#fulltext-wrap').hidden = true;
 
     try{
-      const { data } = await Tesseract.recognize(blob, 'eng', {
-        logger: m => {
-          if(m.status === 'recognizing text'){ $('#ocr-bar').style.width = Math.max(4, Math.round(m.progress*100)) + '%'; }
-          else if(m.status){ $('#ocr-lead').textContent = m.status.charAt(0).toUpperCase()+m.status.slice(1)+'…'; }
-        }
-      });
+      const canvas = await preprocess(blob);
+      const worker = await getWorker();
+      $('#ocr-lead').textContent = 'Reading the image…';
+      const { data } = await worker.recognize(canvas);
       $('#ocr-bar').style.width = '100%';
       const text = (data.text||'').trim();
       const words = tokenize(text);
